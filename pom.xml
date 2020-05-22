@@ -8,7 +8,7 @@
     <artifactId>kie-parent</artifactId>
     <version>7.38.0-SNAPSHOT</version>
   </parent>
-
+  <!-- new comment -->
   <groupId>org.optaplanner</groupId>
   <artifactId>optaplanner</artifactId>
   <packaging>pom</packaging>
