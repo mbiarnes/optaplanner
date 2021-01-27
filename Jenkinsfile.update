@@ -6,11 +6,11 @@ import org.kie.jenkins.MavenStagingHelper
 
 deployProperties = [:]
 optaplannerRepository = 'optaplanner'
+quickstartsRepository = "optaplanner-quickstarts"
 vehicleRoutingRepository = 'optaweb-vehicle-routing'
 employeeRosteringRepository = 'optaweb-employee-rostering'
 kogitoExamplesRepository = 'kogito-examples'
 kogitoAppsRepository = 'kogito-apps'
-optaplannerQuickstartsRepository = "optaplanner-quickstarts"
 
 pipeline {
     agent {
@@ -33,17 +33,17 @@ pipeline {
     parameters {
         // GIT-INFORMATION
         string(name: 'BUILD_BRANCH_NAME', defaultValue: 'master', description: 'Which branch to build? Set if you are not on a multibranch pipeline.')
-        string(name: 'GIT_AUTHOR', defaultValue: 'mbiarnes', description: 'Which Git author repository ?')
         string(name: 'BUILD_BRANCH_NAME_QUICKSTARTS', defaultValue: 'development', description: 'Which branch to build? Set if you are not on a multibranch pipeline.')
+        string(name: 'GIT_AUTHOR', defaultValue: 'mbiarnes', description: 'Which Git author repository ?')
 
         // RELEASE INFORMATION
         booleanParam(name: 'RELEASE', defaultValue: true, description: 'Is this build for a release?')
 
         // VERSION UPDATE INFORMATION
-        string(name: 'NEW_SNAPSHOT_VERSION', defaultValue: '', description: 'Setup a specific build display name')
+        string(name: 'NEW_SNAPSHOT_VERSION', defaultValue: '8.4.0-SNAPSHOT', description: 'Setup a specific build display name')
         string(name: 'MAVEN_DEPENDENCIES_REPOSITORY', defaultValue: '', description: 'Maven repository where to find dependencies if those are not in the default JBoss repository.')
         string(name: 'MAVEN_SETTINGS_CONFIG_FILE_ID', defaultValue: 'kogito_release_settings', description: 'Maven settings configfile to use in pipeline for Maven commands')
-        string(name: 'KOGITO_VERSION', defaultValue: '', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
+        string(name: 'KOGITO_VERSION', defaultValue: '2.0.0-SNAPSHOT', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
 
         // PULLREQUEST INFORMATION - Bot author information. Set as params for easy testing.
         string(name: 'GIT_AUTHOR_BOT', defaultValue: 'pr-help-bot', description: 'From which author should the PR be created ?')
@@ -59,7 +59,7 @@ pipeline {
         stage('Checkout repositories') {
             steps {
                 checkoutRepo(optaplannerRepository, getBuildBranch())
-                checkoutRepo(optaplannerQuickstartsRepository, getBuildBranch())
+                checkoutRepo(quickstartsRepository, getQuickstartsBuildBranch())
                 checkoutRepo(vehicleRoutingRepository, getBuildBranch())
                 checkoutRepo(employeeRosteringRepository, getBuildBranch())
                 checkoutRepo(kogitoExamplesRepository, getBuildBranch())
@@ -72,9 +72,9 @@ pipeline {
             }
             steps {
                 prepareForPR(optaplannerRepository)
+                prepareForPR(quickstartsRepository)
                 prepareForPR(vehicleRoutingRepository)
                 prepareForPR(employeeRosteringRepository)
-                prepareForPR(optaplannerQuickstartsRepository)
                 prepareForPR(kogitoExamplesRepository)
                 prepareForPR(kogitoAppsRepository)
             }
@@ -89,18 +89,21 @@ pipeline {
                     maven.mvnSetVersionProperty(getOptaplannerMavenCommand(), 'version.org.kie.kogito', getKogitoVersion())
                     mavenCleanInstallOptaPlannerParents()
                     maven.mvnVersionsUpdateParentAndChildModules(getOptaplannerQuickstartsMavenCommand(), getProjectVersion(), true)
+                    // Update Optaplanner version
+                    maven.mvnSetVersionProperty(getOptaplannerQuickstartsMavenCommand(), 'version.org.optaplanner', getProjectVersion())
                     maven.mvnVersionsUpdateParentAndChildModules(getOptawebVehicleRoutingMavenCommand(), getProjectVersion(), true)
                     maven.mvnVersionsUpdateParentAndChildModules(getOptawebEmployeeRosteringMavenCommand(), getProjectVersion(), true)
                 }
             }
         }
-        stage('Update version.org.optaplanner SNAPSHOT in kogito-examples and kogito-apps') {
+        stage('Update version.org.optaplanner') {
             when {
                 expression { return getProjectVersion() != '' }
             }
             steps{
                 updateOptaplannerSnapshot('version.org.optaplanner', getProjectVersion(), kogitoExamplesRepository)
                 updateOptaplannerSnapshot('version.org.optaplanner', getProjectVersion(), kogitoAppsRepository)
+                updateQuickstartsSnapshot(getProjectVersion(), quickstartsRepository)
             }
         }
         stage('Create PRs'){
@@ -109,11 +112,11 @@ pipeline {
             }
             steps {
                 commitAndCreatePR(optaplannerRepository)
-                commitAndCreatePR(optaplannerQuickstartsRepository)
+                commitAndCreatePR_II(quickstartsRepository)
                 commitAndCreatePRIgnoringNpmRegistry(vehicleRoutingRepository)
                 commitAndCreatePRIgnoringNpmRegistry(employeeRosteringRepository)
-                commitAndCreatePR(kogitoExamplesRepository)
                 commitAndCreatePR(kogitoAppsRepository)
+                commitAndCreatePR(kogitoExamplesRepository)
             }
         }
     }
@@ -132,6 +135,9 @@ String getKogitoVersion() {
 }
 String getBuildBranch() {
     return params.BUILD_BRANCH_NAME
+}
+String getQuickstartsBuildBranch() {
+    return params.BUILD_BRANCH_NAME_QUICKSTARTS
 }
 boolean isRelease() {
     return params.RELEASE
@@ -166,6 +172,13 @@ void updateOptaplannerSnapshot(String optaString, String optaVersion, String rep
     }
 }
 
+void updateQuickstartsSnapshot(String quickstartVersion, String repo, String dirName=repo) {
+    dir(dirName) {
+        sh "sed -i -E 's/def optaplannerVersion = \"[^\"\\s]+\"/def optaplannerVersion = \"${quickstartVersion}\"/' */build.gradle"
+        sh "git add */build.gradle"
+    }
+}
+
 // ****** PULL REQUESTS ******
 void prepareForPR(String repo) {
     dir(repo) {
@@ -181,6 +194,17 @@ void commitAndCreatePR(String repo) {
         githubscm.commitChanges(commitMsg, { githubscm.findAndStageNotIgnoredFiles('pom.xml') })
         githubscm.pushObject('origin', getBotBranch(), getBotAuthorCredsID())
         deployProperties["${repo}.pr.link"] = githubscm.createPR(commitMsg, prBody, getBuildBranch(), getBotAuthorCredsID())
+    }
+}
+
+void commitAndCreatePR_II(String repo) {
+    dir(repo) {
+        def commitMsg = "[${getQuickstartsBuildBranch()}] Update to next ${getProjectVersion()} version"
+        def prBody = "Generated by build ${BUILD_TAG}: ${BUILD_URL}.\nPlease do not merge, it will be merged automatically after testing."
+
+        githubscm.commitChanges(commitMsg, { githubscm.findAndStageNotIgnoredFiles('pom.xml') })
+        githubscm.pushObject('origin', getBotBranch(), getBotAuthorCredsID())
+        deployProperties["${repo}.pr.link"] = githubscm.createPR(commitMsg, prBody, getQuickstartsBuildBranch(), getBotAuthorCredsID())
     }
 }
 
@@ -205,7 +229,7 @@ MavenCommand getOptaplannerMavenCommand(){
 }
 
 MavenCommand getOptaplannerQuickstartsMavenCommand(){
-    return getMavenDefaultCommand().inDirectory(vehicleRoutingRepository)
+    return getMavenDefaultCommand().inDirectory(quickstartsRepository).withProperty('full')
 }
 
 MavenCommand getOptawebVehicleRoutingMavenCommand(){
