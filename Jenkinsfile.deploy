@@ -13,7 +13,8 @@ employeeRosteringRepository = 'optaweb-employee-rostering'
 
 pipeline {
     agent {
-        label 'kie-rhel7 && kie-mem16g'
+        // label 'kie-rhel7 && kie-mem16g'
+        label 'kie-rhel7-priority'
     }
 
     tools {
@@ -50,8 +51,7 @@ pipeline {
         string(name: 'KOGITO_VERSION', defaultValue: '2.0.0-SNAPSHOT', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
         
         // Nexus staging default parameters
-        // string(name: 'NEXUS_RELEASE_URL', defaultValue: 'https://repository.jboss.org/nexus', description: 'Nexus URL for release staging')
-        string(name: 'NEXUS_RELEASE_URL', defaultValue: 'https://repository.stage.jboss.org', description: 'Nexus URL for release staging')
+        string(name: 'NEXUS_RELEASE_URL', defaultValue: 'https://repository.jboss.org/nexus', description: 'Nexus URL for release staging')
         string(name: 'NEXUS_RELEASE_REPOSITORY_ID', defaultValue: 'jboss-releases-repository', description: 'Nexus Release repository ID for staging')
         string(name: 'NEXUS_STAGING_PROFILE_ID', defaultValue: '2161b7b8da0080', description: 'Nexus staging profile ID for release process ')
         string(name: 'NEXUS_BUILD_PROMOTION_PROFILE_ID', defaultValue: 'ea49ccd6f174', description: 'Nexus Build Promotion profile ID for release process')
@@ -213,7 +213,7 @@ pipeline {
 
         stage('Create PRs') {
             when {
-                expression { return isRelease() }
+                expression { return isRelease() || isCreatePr() }
             }
             steps {
                 commitAndCreatePR(optaplannerRepository, getBuildBranch())
@@ -250,7 +250,7 @@ pipeline {
                 writeFile(text: propertiesStr, file: 'deployment.properties')
                 archiveArtifacts(artifacts: 'deployment.properties')
             }
-            cleanWs()
+            // cleanWs()
         }
     }
 }
@@ -260,11 +260,13 @@ void updateQuickstartsVersions(){
     maven.mvnVersionsUpdateParentAndChildModules(getOptaplannerQuickstartsMavenCommand(), getProjectVersion(), !params.RELEASE)
     gradleVersionsUpdate(quickstartsRepository, getProjectVersion())
 
-    dir(quickstartsRepository) {
-        assert !sh (script:
-                'grep -Rn "SNAPSHOT" --include={pom.xml,build.gradle} | ' +
-                'grep -v -e "0.1.0-SNAPSHOT" -e ">1.0-SNAPSHOT" | ' +
-                'cat', returnStdout: true)
+    if (isRelease()) {
+        dir(quickstartsRepository) {
+            assert !sh (script:
+                    'grep -Rn "SNAPSHOT" --include={pom.xml,build.gradle} | ' +
+                    'grep -v -e "0.1.0-SNAPSHOT" -e ">1.0-SNAPSHOT" | ' +
+                    'cat', returnStdout: true)
+        }
     }
 }
 
@@ -282,7 +284,7 @@ void checkoutRepo(String repo, String dirName=repo) {
     dir(dirName) {
         deleteDir()
         if (params.PR_TARGET_BRANCH) {
-            githubscm.checkoutIfExists(repo, getGitAuthor(), getBuildBranch(), 'kiegroup', getFallbackBranch(repo), true)
+            githubscm.checkoutIfExists(repo, getGitAuthor(), getBuildBranch(), 'mbiarnes', getFallbackBranch(repo), true)
         } else {
             checkout(githubscm.resolveRepository(repo, getGitAuthor(), getBuildBranch(), false))
         }
