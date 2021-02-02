@@ -49,7 +49,8 @@
     <snapshotRepository>
       <id>jboss-snapshots-repository</id>
       <name>JBoss Snapshot Repository</name>
-      <url>https://repository.jboss.org/nexus/content/repositories/snapshots/</url>
+      <!-- <url>https://repository.jboss.org/nexus/content/repositories/snapshots/</url> -->
+      <url>https://repository.stage.jboss.org/nexus/content/repositories/snapshots/</url>
     </snapshotRepository>
   </distributionManagement>
 

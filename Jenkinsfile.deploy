@@ -32,7 +32,7 @@ pipeline {
 
         // Git information
         string(name: 'BUILD_BRANCH_NAME', defaultValue: 'master', description: 'Which branch to build? Set if you are not on a multibranch pipeline.')
-        string(name: 'GIT_AUTHOR', defaultValue: 'kiegroup', description: 'Which Git author repository ?')
+        string(name: 'GIT_AUTHOR', defaultValue: 'mbiarnes', description: 'Which Git author repository ?')
 
         // Build&test information
         string(name: 'MAVEN_DEPENDENCIES_REPOSITORY', defaultValue: '', description: 'Maven repository where to find dependencies if those are not in the default JBoss repository.')
@@ -45,18 +45,20 @@ pipeline {
 
         // Release information
         booleanParam(name: 'RELEASE', defaultValue: false, description: 'Is this build for a release?')
-        string(name: 'PROJECT_VERSION', defaultValue: '', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
-        string(name: 'KOGITO_VERSION', defaultValue: '', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
+        booleanParam(name: 'CREATE_PR', defaultValue: false, description: 'Should we create a PR with the changes ?')
+        string(name: 'PROJECT_VERSION', defaultValue: '8.4.0-SNAPSHOT', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
+        string(name: 'KOGITO_VERSION', defaultValue: '2.0.0-SNAPSHOT', description: 'Optional if not RELEASE. If RELEASE, cannot be empty.')
         
         // Nexus staging default parameters
-        string(name: 'NEXUS_RELEASE_URL', defaultValue: 'https://repository.jboss.org/nexus', description: 'Nexus URL for release staging')
+        // string(name: 'NEXUS_RELEASE_URL', defaultValue: 'https://repository.jboss.org/nexus', description: 'Nexus URL for release staging')
+        string(name: 'NEXUS_RELEASE_URL', defaultValue: 'https://repository.stage.jboss.org', description: 'Nexus URL for release staging')
         string(name: 'NEXUS_RELEASE_REPOSITORY_ID', defaultValue: 'jboss-releases-repository', description: 'Nexus Release repository ID for staging')
         string(name: 'NEXUS_STAGING_PROFILE_ID', defaultValue: '2161b7b8da0080', description: 'Nexus staging profile ID for release process ')
         string(name: 'NEXUS_BUILD_PROMOTION_PROFILE_ID', defaultValue: 'ea49ccd6f174', description: 'Nexus Build Promotion profile ID for release process')
 
         // Bot author information. Set as params for easy testing.
-        string(name: 'GIT_AUTHOR_BOT', defaultValue: 'bsig-gh-bot', description: 'From which author should the PR be created ?')
-        string(name: 'BOT_CREDENTIALS_ID', defaultValue: 'bsig-gh-bot', description: 'Credentials for PR creation')
+        string(name: 'GIT_AUTHOR_BOT', defaultValue: 'pr-help-bot', description: 'From which author should the PR be created ?')
+        string(name: 'BOT_CREDENTIALS_ID', defaultValue: 'pr-help-bot', description: 'Credentials for PR creation')
 
         // PR parameter to be filled out for PR checks
         string(name: 'PR_TARGET_BRANCH', defaultValue: '', description: 'What is the target branch of the PR?')
@@ -115,7 +117,7 @@ pipeline {
 
         stage('Prepare for PR') {
             when {
-                expression { return isRelease() }
+                expression { return isRelease() || isCreatePr() }
             }
             steps {
                 prepareForPR(optaplannerRepository)
@@ -131,13 +133,13 @@ pipeline {
             }
             steps {
                 script {
-                    maven.mvnVersionsSet(getOptaplannerMavenCommand(), getProjectVersion())
+                    maven.mvnVersionsSet(getOptaplannerMavenCommand(), getProjectVersion(), !params.RELEASE)
                     maven.mvnSetVersionProperty(getOptaplannerMavenCommand(), 'version.org.kie.kogito', getKogitoVersion())
 
                     mavenCleanInstallOptaPlannerParents()
 
-                    maven.mvnVersionsUpdateParentAndChildModules(getOptawebVehicleRoutingMavenCommand(), getProjectVersion())
-                    maven.mvnVersionsUpdateParentAndChildModules(getOptawebEmployeeRosteringMavenCommand(), getProjectVersion())
+                    maven.mvnVersionsUpdateParentAndChildModules(getOptawebVehicleRoutingMavenCommand(), getProjectVersion(), !params.RELEASE)
+                    maven.mvnVersionsUpdateParentAndChildModules(getOptawebEmployeeRosteringMavenCommand(), getProjectVersion(), !params.RELEASE)
 
                     updateQuickstartsVersions()
                 }
@@ -255,7 +257,7 @@ pipeline {
 
 void updateQuickstartsVersions(){
     maven.mvnSetVersionProperty(getOptaplannerQuickstartsMavenCommand(), "version.org.optaplanner", getProjectVersion())
-    maven.mvnVersionsUpdateParentAndChildModules(getOptaplannerQuickstartsMavenCommand(), getProjectVersion())
+    maven.mvnVersionsUpdateParentAndChildModules(getOptaplannerQuickstartsMavenCommand(), getProjectVersion(), !params.RELEASE)
     gradleVersionsUpdate(quickstartsRepository, getProjectVersion())
 
     dir(quickstartsRepository) {
@@ -424,6 +426,9 @@ boolean isRelease() {
     return params.RELEASE
 }
 
+boolean isCreatePr() {
+    return params.CREATE_PR
+}
 String getGitAuthor() {
     return params.GIT_AUTHOR
 }
